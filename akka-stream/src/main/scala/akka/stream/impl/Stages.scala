@@ -45,6 +45,7 @@ private[stream] object Stages {
     val intersperse = name("intersperse")
     val buffer = name("buffer")
     val conflate = name("conflate")
+    val conflateWeighted = name("conflateWeighted")
     val expand = name("expand")
     val mapConcat = name("mapConcat")
     val groupBy = name("groupBy")
@@ -197,6 +198,10 @@ private[stream] object Stages {
 
   final case class Conflate[In, Out](seed: In ⇒ Out, aggregate: (Out, In) ⇒ Out, attributes: Attributes = conflate) extends SymbolicStage[In, Out] {
     override def create(attr: Attributes): Stage[In, Out] = fusing.Conflate(seed, aggregate, supervision(attr))
+  }
+
+  final case class ConflateWeighted[In, Out](seed: In ⇒ Out, costFn: In ⇒ Long, max: Long, aggregate: (Out, In) ⇒ Out, attributes: Attributes = conflateWeighted) extends SymbolicStage[In, Out] {
+    override def create(attr: Attributes): Stage[In, Out] = fusing.ConflateWeighted(seed, costFn, max, aggregate, supervision(attr))
   }
 
   final case class Expand[In, Out, Seed](seed: In ⇒ Seed, extrapolate: Seed ⇒ (Out, Seed), attributes: Attributes = expand) extends SymbolicStage[In, Out] {

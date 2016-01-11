@@ -476,6 +476,77 @@ private[akka] final case class Conflate[In, Out](seed: In ⇒ Out, aggregate: (O
 /**
  * INTERNAL API
  */
+private[akka] final case class ConflateWeighted[In, Out](seed: In ⇒ Out, costFn: In ⇒ Long, n: Long, aggregate: (Out, In) ⇒ Out,
+                                                         decider: Supervision.Decider) extends DetachedStage[In, Out] {
+  private var agg: Any = null
+  private var left: Long = n
+  private var pending: Option[In] = None
+
+  override def onPush(elem: In, ctx: DetachedContext[Out]): UpstreamDirective = {
+
+    val cost = costFn(elem)
+    if (agg == null) {
+      left -= cost
+      agg = seed(elem)
+    } else if (left < 0 || left - cost < 0) {
+      pending = Some(elem)
+    } else {
+      left -= cost
+      agg = aggregate(agg.asInstanceOf[Out], elem)
+    }
+
+    if (!ctx.isHoldingDownstream && pending.isEmpty) ctx.pull()
+    else {
+      val result = agg.asInstanceOf[Out]
+      agg = null
+      pending.foreach(e ⇒ agg = seed(e))
+      pending = None
+      ctx.pushAndPull(result)
+    }
+  }
+
+  override def onPull(ctx: DetachedContext[Out]): DownstreamDirective = {
+    if (ctx.isFinishing) {
+      if (agg == null) ctx.finish()
+      else {
+        val result = agg.asInstanceOf[Out]
+        agg = null
+        left = n
+        if (pending.isEmpty) {
+          ctx.pushAndFinish(result)
+        } else {
+          val e = pending.get
+          agg = seed(e)
+          left -= costFn(e)
+          pending = None
+          ctx.push(result)
+        }
+      }
+    } else if (agg == null) ctx.holdDownstream()
+    else {
+      val result = agg.asInstanceOf[Out]
+      if (result == null) throw new NullPointerException
+      agg = null
+      left = n
+      pending.foreach { e ⇒
+        agg = seed(e)
+        left -= costFn(e)
+      }
+      pending = None
+      ctx.push(result)
+    }
+  }
+
+  override def onUpstreamFinish(ctx: DetachedContext[Out]): TerminationDirective = ctx.absorbTermination()
+
+  override def decide(t: Throwable): Supervision.Directive = decider(t)
+
+  override def restart(): ConflateWeighted[In, Out] = copy()
+}
+
+/**
+ * INTERNAL API
+ */
 private[akka] final case class Expand[In, Out, Seed](seed: In ⇒ Seed, extrapolate: Seed ⇒ (Out, Seed)) extends DetachedStage[In, Out] {
   private var s: Seed = _
   private var started: Boolean = false

@@ -915,6 +915,8 @@ trait FlowOps[+Out, +Mat] {
    */
   def conflate[S](seed: Out ⇒ S)(aggregate: (S, Out) ⇒ S): Repr[S] = andThen(Conflate(seed, aggregate))
 
+  def conflateWeighted[S](seed: Out ⇒ S, costFn: Out ⇒ Long, max: Long)(aggregate: (S, Out) ⇒ S): Repr[S] = andThen(ConflateWeighted(seed, costFn, max, aggregate))
+
   /**
    * Allows a faster downstream to progress independently of a slower publisher by extrapolating elements from an older
    * element until new element comes from the upstream. For example an expand step might repeat the last element for
